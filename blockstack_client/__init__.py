@@ -37,3 +37,4 @@ from client import namespace_preorder, namespace_reveal, namespace_ready
 from client import get_immutable, get_mutable
 from client import put_immutable, put_mutable, delete_immutable, delete_mutable
 from client import session, register_storage
+from client import set_default_proxy, BlockstackRPCClient
