@@ -33,6 +33,12 @@ import importlib
 import pprint
 import random
 import time
+from xmlrpclib import ServerProxy, Transport
+from defusedxml import xmlrpc
+import httplib
+
+# prevent the usual XML attacks
+xmlrpc.monkey_patch()
 
 import parsing, schemas, storage, drivers, config, spv, utils
 import user as user_db
@@ -57,140 +63,62 @@ default_proxy = None
 STORAGE_IMPL = None
 
 
+# borrowed with gratitude from Justin Cappos
+# https://seattle.poly.edu/browser/seattle/trunk/demokit/timeout_xmlrpclib.py?rev=692
+class TimeoutHTTPConnection(httplib.HTTPConnection):
+    def connect(self):
+        httplib.HTTPConnection.connect(self)
+        self.sock.settimeout(self.timeout)
+
+
+class TimeoutHTTP(httplib.HTTP):
+    _connection_class = TimeoutHTTPConnection
+
+    def set_timeout(self, timeout):
+        self._conn.timeout = timeout
+
+    def getresponse(self, **kw):
+        return self._conn.getresponse(**kw)
+
+
+class TimeoutTransport(Transport):
+    def __init__(self, timeout=10, *l, **kw):
+        Transport.__init__(self, *l, **kw)
+        self.timeout = timeout
+
+    def make_connection(self, host):
+        conn = TimeoutHTTP(host)
+        conn.set_timeout(self.timeout)
+        return conn
+
+class TimeoutServerProxy(ServerProxy):
+    def __init__(self, uri, timeout=10, *l, **kw):
+        kw['transport'] = TimeoutTransport(timeout=timeout, use_datetime=kw.get('use_datetime', 0))
+        ServerProxy.__init__(self, uri, *l, **kw)
+
+
 class BlockstackRPCClient(object):
     """
-    Not-quite-JSONRPC client for Blockstack.
-
-    Blockstack's not-quite-JSONRPC server expects a raw Netstring that encodes
-    a JSON object with a "method" string and an "args" list.  It will ignore
-    "id" and "version", and will not accept keyword arguments.  It also does
-    not guarantee that the "result" and "error" keywords will be present.
+    RPC client for the blockstack server
     """
-
-    def __init__(self, server, port,
-                 max_rpc_len=MAX_RPC_LEN,
-                 timeout=config.DEFAULT_TIMEOUT):
+    def __init__(self, server, port, max_rpc_len=MAX_RPC_LEN, timeout=config.DEFAULT_TIMEOUT ):
+        self.srv = TimeoutServerProxy( "http://%s:%s" % (server, port), timeout=timeout, allow_none=True )
         self.server = server
         self.port = port
-        self.sock = None
-        self.max_rpc_len = max_rpc_len
-        self.timeout = timeout
 
     def __getattr__(self, key):
         try:
             return object.__getattr__(self, key)
         except AttributeError:
-            return self.dispatch(key)
+            def inner(*args, **kw):
+                func = getattr(self.srv, key)
+                res = func(*args, **kw)
+                if res is not None:
+                    # lol jsonrpc within xmlrpc
+                    res = json.loads(res)
+                return res
+            return inner
 
-    def socket():
-        return self.sock
-
-    def default(self, *args):
-        self.params = args
-        return self.request()
-
-    def dispatch(self, key):
-        self.method = key
-        return self.default
-
-    def ensure_connected(self):
-        if self.sock is None:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
-            self.sock.settimeout(self.timeout)
-            self.sock.connect((self.server, self.port))
-
-        return True
-
-    def request(self):
-
-        self.ensure_connected()
-        request_id = str(uuid.uuid4())
-        parameters = {
-            'id': request_id,
-            'method': self.method,
-            'params': self.params,
-            'version': '2.0'
-        }
-
-        data = json.dumps(parameters)
-        data_netstring = str(len(data)) + ":" + data + ","
-
-        # send request
-        try:
-            self.sock.sendall(data_netstring)
-        except Exception, e:
-            self.sock.close()
-            self.sock = None
-            raise e
-
-        # get response: expect comma-ending netstring
-        # get the length first
-        len_buf = ""
-
-        while True:
-            c = self.sock.recv(1)
-            if len(c) == 0:
-                # connection closed
-                self.sock.close()
-                self.sock = None
-                raise Exception("Server closed remote connection")
-
-            c = c[0]
-
-            if c == ':':
-                break
-            else:
-                len_buf += c
-                buf_len = 0
-
-                # ensure it's an int
-                try:
-                    buf_len = int(len_buf)
-                except Exception, e:
-                    # invalid
-                    self.sock.close()
-                    self.sock = None
-                    raise Exception("Invalid response: invalid netstring length")
-
-                # ensure it's not too big
-                if buf_len >= self.max_rpc_len:
-                    self.sock.close()
-                    self.sock = None
-                    raise Exception("Invalid response: message too big")
-
-        # receive message
-        num_received = 0
-        response = ""
-
-        while num_received < buf_len+1:
-            buf = self.sock.recv(4096)
-            num_received += len(buf)
-            response += buf
-
-        # ensure that the message is terminated with a comma
-        if response[-1] != ',':
-            self.sock.close()
-            self.sock = None
-            raise Exception("Invalid response: invalid netstring termination")
-
-        # trim ','
-        response = response[:-1]
-        result = None
-
-        # parse the response
-        try:
-            result = json.loads(response)
-
-            # Netstrings responds with [{}] instead of {}
-            result = result[0]
-
-            return result
-        except Exception, e:
-
-            # try to clean up
-            self.sock.close()
-            self.sock = None
-            raise Exception("Invalid response: not a JSON string")
 
 
 def session(conf=None, server_host=BLOCKSTACKD_SERVER, server_port=BLOCKSTACKD_PORT,
