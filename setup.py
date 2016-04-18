@@ -22,8 +22,9 @@ setup(
     install_requires=[
         'boto==2.38.0',
         'basicrpc==0.0.2',
-        'virtualchain==0.0.8',
-        'protocoin==0.1'
+        'virtualchain==0.0.8.1',
+        'protocoin==0.1',
+        'defusedxml>=0.4.1'
     ],
     classifiers=[
         'Intended Audience :: Developers',
