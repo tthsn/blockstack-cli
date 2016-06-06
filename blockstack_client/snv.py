@@ -41,8 +41,6 @@ from keys import *
 from proxy import *
 from profile import *
 
-from spv import SPVClient
-
 import pybitcoin
 import bitcoin
 import binascii
@@ -53,10 +51,12 @@ from config import get_logger, DEBUG, MAX_RPC_LEN, find_missing, BLOCKSTACKD_SER
     FIRST_BLOCK_MAINNET, NAME_OPCODES, OPFIELDS, CONFIG_DIR, SPV_HEADERS_PATH, BLOCKCHAIN_ID_MAGIC, \
     NAME_PREORDER, NAME_REGISTRATION, NAME_UPDATE, NAME_TRANSFER, NAMESPACE_PREORDER, NAME_IMPORT, \
     USER_ZONEFILE_TTL, CONFIG_PATH
+    
 
 log = get_logger()
 
 import virtualchain
+from virtualchain import namespace_to_blockchain
 
 def get_create_diff(blockchain_record):
     """
@@ -155,202 +155,7 @@ def get_block_from_consensus(consensus_hash, proxy=None):
     return resp
 
 
-def txid_to_block_data(txid, bitcoind_proxy, proxy=None):
-    """
-    Given a txid, get its block's data.
-
-    Use SPV to verify the information we receive from the (untrusted)
-    bitcoind host.
-
-    @bitcoind_proxy must be a BitcoindConnection (from virtualchain.lib.session)
-
-    Return the (block hash, block data, txdata) on success
-    Return (None, None, None) on error
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy()
-
-    timeout = 1.0
-    while True:
-        try:
-            untrusted_tx_data = bitcoind_proxy.getrawtransaction(txid, 1)
-            untrusted_block_hash = untrusted_tx_data['blockhash']
-            untrusted_block_data = bitcoind_proxy.getblock(untrusted_block_hash)
-            break
-        except Exception, e:
-            log.exception(e)
-            log.error("Unable to obtain block data; retrying...")
-            time.sleep(timeout)
-            timeout = timeout * 2 + random.random() * timeout
-
-    # first, can we trust this block? is it in the SPV headers?
-    untrusted_block_header_hex = virtualchain.block_header_to_hex(untrusted_block_data, untrusted_block_data['previousblockhash'])
-    block_id = SPVClient.block_header_index(proxy.spv_headers_path, (untrusted_block_header_hex + "00").decode('hex'))
-    if block_id < 0:
-        # bad header
-        log.error("Block header '%s' is not in the SPV headers" % untrusted_block_header_hex)
-        return (None, None, None)
-
-    # block header is trusted.  Is the transaction data consistent with it?
-    if not virtualchain.block_verify(untrusted_block_data):
-        log.error("Block transaction IDs are not consistent with the trusted header's Merkle root")
-        return (None, None, None)
-
-    # verify block hash
-    if not virtualchain.block_header_verify(untrusted_block_data, untrusted_block_data['previousblockhash'], untrusted_block_hash):
-        log.error("Block hash is not consistent with block header")
-        return (None, None, None)
-
-    # we trust the block hash, block data, and txids
-    block_hash = untrusted_block_hash
-    block_data = untrusted_block_data
-    tx_data = untrusted_tx_data
-
-    return (block_hash, block_data, tx_data)
-
-
-
-def txid_to_serial_number(txid, bitcoind_proxy, proxy=None):
-    """
-    Given a transaction ID, convert it into a serial number
-    (defined as $block_id-$tx_index).
-
-    Use SPV to verify the information we receive from the (untrusted)
-    bitcoind host.
-
-    @bitcoind_proxy must be a BitcoindConnection (from virtualchain.lib.session)
-
-    Return the serial number on success
-    Return None on error
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy()
-
-    block_hash, block_data, _ = txid_to_block_data(txid, bitcoind_proxy, proxy=proxy)
-    if block_hash is None or block_data is None:
-        return None
-
-    # What's the tx index?
-    try:
-        tx_index = block_data['tx'].index(txid)
-    except:
-        # not actually present
-        log.error("Transaction %s is not present in block %s (%s)" % (txid, block_id, block_hash))
-
-    return "%s-%s" % (block_id, tx_index)
-
-
-
-def serial_number_to_tx(serial_number, bitcoind_proxy, proxy=None):
-    """
-    Convert a serial number into its transaction in the blockchain.
-    Use an untrusted bitcoind connection to get the list of transactions,
-    and use trusted SPV headers to ensure that the transaction obtained is on the main chain.
-    @bitcoind_proxy must be a BitcoindConnection (from virtualchain.lib.session)
-
-    Return the SPV-verified transaction object (as a dict) on success
-    Return None on error
-    """
-
-    if proxy is None:
-        proxy = get_default_proxy()
-
-    parts = serial_number.split("-")
-    block_id = int(parts[0])
-    tx_index = int(parts[1])
-
-    timeout = 1.0
-    while True:
-        try:
-            block_hash = bitcoind_proxy.getblockhash(block_id)
-            block_data = bitcoind_proxy.getblock(block_hash)
-            break
-        except Exception, e:
-            log.error("Unable to obtain block data; retrying...")
-            time.sleep(timeout)
-            timeout = timeout * 2 + random.random() * timeout
-
-    rc = SPVClient.sync_header_chain(proxy.spv_headers_path, bitcoind_proxy.opts['bitcoind_server'], block_id)
-    if not rc:
-        log.error("Failed to synchronize SPV header chain up to %s" % block_id)
-        return None
-
-    # verify block header
-    rc = SPVClient.block_header_verify(proxy.spv_headers_path, block_id, block_hash, block_data)
-    if not rc:
-        log.error("Failed to verify block header for %s against SPV headers" % block_id)
-        return None
-
-    # verify block txs
-    rc = SPVClient.block_verify(block_data, block_data['tx'])
-    if not rc:
-        log.error("Failed to verify block transaction IDs for %s against SPV headers" % block_id)
-        return None
-
-    # sanity check
-    if tx_index >= len(block_data['tx']):
-        log.error("Serial number %s references non-existant transaction %s (out of %s txs)" % (serial_number, tx_index, len(block_data['tx'])))
-        return None
-
-    # obtain transaction
-    txid = block_data['tx'][tx_index]
-    tx = bitcoind_proxy.getrawtransaction(txid, 1)
-
-    # verify tx
-    rc = SPVClient.tx_verify(block_data['tx'], tx)
-    if not rc:
-        log.error("Failed to verify block transaction %s against SPV headers" % txid)
-        return None
-
-    # verify tx index
-    if tx_index != SPVClient.tx_index(block_data['tx'], tx):
-        log.error("TX index mismatch: serial number identifies transaction number %s (%s), but got transaction %s" % \
-                (tx_index, block_data['tx'][tx_index], block_data['tx'][ SPVClient.tx_index(block_data['tx'], tx) ]))
-        return None
-
-    # success!
-    return tx
-
-
-def parse_tx_op_return(tx):
-    """
-    Given a transaction, locate its OP_RETURN and parse
-    out its opcode and payload.
-    Return (opcode, payload) on success
-    Return (None, None) if there is no OP_RETURN, or if it's not a blockchain ID operation.
-    """
-
-    # find OP_RETURN output
-    op_return = None
-    outputs = tx['vout']
-    for out in outputs:
-        if int(out["scriptPubKey"]['hex'][0:2], 16) == pybitcoin.opcodes.OP_RETURN:
-            op_return = out['scriptPubKey']['hex'].decode('hex')
-            break
-
-    if op_return is None:
-        pp = pprint.PrettyPrinter()
-        pp.pprint(tx)
-        log.error("transaction has no OP_RETURN output")
-        return (None, None)
-
-    # [0] is OP_RETURN, [1] is the length; [2:4] are 'id', [4] is opcode
-    magic = op_return[2:4]
-
-    if magic != BLOCKCHAIN_ID_MAGIC:
-        # not a blockchain ID operation
-        log.error("OP_RETURN output does not encode a blockchain ID operation")
-        return (None, None)
-
-    opcode = op_return[4]
-    payload = op_return[5:]
-
-    return (opcode, payload)
-
-
-def get_consensus_hash_from_tx(tx):
+def get_consensus_hash_from_tx(blockchain_name, tx, proxy=None):
     """
     Given an SPV-verified transaction, extract its consensus hash.
     Only works of the tx encodes a NAME_PREORDER, NAMESPACE_PREORDER,
@@ -360,7 +165,10 @@ def get_consensus_hash_from_tx(tx):
     Return None on error.
     """
 
-    opcode, payload = parse_tx_op_return(tx)
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    opcode, payload = virtualchain.snv_tx_parse(blockchain_name, tx)
     if opcode is None or payload is None:
         return None
 
@@ -385,7 +193,9 @@ def verify_consensus_hash_from_tx(tx, fqname, candidate_consensus_hash):
     does not encode one of the valid opcodes, or there is a mismatch.
     """
 
-    opcode, payload = parse_tx_op_return(tx)
+    namespace_id = fqname.split(".")[-1]
+    blockchain_name = namespace_to_blockchain( namespace_id )
+    opcode, payload = virtualchain.snv_tx_parse(blockchain_name, tx)
     if opcode is None or payload is None:
         return None
 
@@ -418,7 +228,7 @@ def verify_consensus_hash_from_tx(tx, fqname, candidate_consensus_hash):
         return None
 
 
-def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None, serial_number=None):
+def get_name_creation_consensus_info(name, blockchain_record, blockchain_proxy, proxy=None, serial_number=None):
     """
     Given the result of a call to get_name_blockchain_record,
     obtain the creation consensus hash, type, and block number.
@@ -444,6 +254,9 @@ def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, pr
 
     On error, return a dict with 'error' defined as a key, mapped to an error message.
     """
+    namespace_id = name.split(".")[-1]
+    blockchain_name = namespace_to_blockchain(namespace_id)
+
     create_block_number, create_diff = get_create_diff(blockchain_record)
     create_consensus_tx = None
 
@@ -462,7 +275,7 @@ def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, pr
         else:
             preorder_serial_number = serial_number
 
-        create_consensus_tx = serial_number_to_tx(preorder_serial_number, bitcoind_proxy, proxy=proxy)
+        create_consensus_tx = virtualchain.serial_number_to_tx_data(blockchain_name, preorder_serial_number, blockchain_proxy, proxy.blockchain_headers_path)
 
         if create_consensus_tx is None:
            return {'error': 'Failed to verify name creation consensus-bearing transaction against SPV headers'}
@@ -498,9 +311,9 @@ def get_name_creation_consensus_info(name, blockchain_record, bitcoind_proxy, pr
     return creation_info
 
 
-def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None):
+def get_name_reveal_consensus_info(name, blockchain_record, blockchain_proxy, proxy=None):
     """
-    Given a name, its blockchain record, and a bitcoind proxy, get information
+    Given a name, its blockchain record, and a blockchain proxy, get information
     about the name's revelation (i.e. the Blockstack state transition that exposed
     the name's plaintext).  That is, get information about a name's NAME_REGISTRATION,
     or its NAME_IMPORT.
@@ -514,6 +327,12 @@ def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, prox
     * txid: the transaction ID of the revelation
     """
 
+    if proxy is None:
+        proxy = get_default_proxy()
+
+    namespace_id = name.split(".")[-1]
+    blockchain_name = namespace_to_blockchain( namespace_id )
+
     reveal_block_number, reveal_txid = get_reveal_txid(blockchain_record)
 
     # consensus info for when the name was revealed to the world (NAME_IMPORT or NAME_REGISTRATION)
@@ -522,11 +341,11 @@ def get_name_reveal_consensus_info(name, blockchain_record, bitcoind_proxy, prox
     reveal_consensus_type = None
 
     # get verified name revelation data
-    reveal_block_hash, reveal_block_data, reveal_tx = txid_to_block_data(reveal_txid, bitcoind_proxy, proxy=proxy)
+    reveal_block_hash, reveal_block_data, reveal_tx = virtualchain.snv_txid_to_block_data(blockchain_name, reveal_txid, blockchain_proxy, proxy.blockchain_headers_path)
     if reveal_block_hash is None or reveal_block_data is None:
         return {'error': 'Failed to look up name revelation information'}
 
-    reveal_op, reveal_payload = parse_tx_op_return(reveal_tx)
+    reveal_op, reveal_payload = virtualchain.snv_tx_parse(reveal_tx)
     if reveal_op is None or reveal_payload is None:
         return {'error': 'Transaction is not a valid Blockstack operation'}
 
@@ -585,7 +404,7 @@ def find_last_historical_op(history, opcode):
     return (None, None)
 
 
-def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, proxy=None):
+def get_name_update_consensus_info(name, blockchain_record, blockchain_proxy, proxy=None):
     """
     Given the result of a call to get_name_blockchain_record (an untrusted database record for a name),
     obtain the last-modification consensus hash, type, and block number.  Use SPV to verify that
@@ -611,6 +430,9 @@ def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, prox
     update_block_id = None
     update_consensus_block_id = None
 
+    namespace_id = name.split(".")[-1]
+    blockchain_name = namespace_to_blockchain( blockchain_id )
+
     # find the latest NAME_UPDATE
     if str(blockchain_record['opcode']) == "NAME_UPDATE":
         update_consensus_hash = str(blockchain_record['consensus_hash'])
@@ -628,7 +450,7 @@ def get_name_update_consensus_info(name, blockchain_record, bitcoind_proxy, prox
 
     # get update tx data and verify it via SPV
     update_serial = "%s-%s" % (update_block_id, update_record['vtxindex'])
-    update_tx = serial_number_to_tx(update_serial, bitcoind_proxy, proxy=proxy)
+    update_tx = virtualchain.serial_number_to_tx_data(blockchain_name, update_serial, blockchain_proxy, proxy.blockchain_headers_path)
 
     # update_tx is now known to be on the main blockchain.
     tx_consensus_hash = None
@@ -850,23 +672,27 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
 
     trusted_serial_number_or_txid_or_consensus_hash = str(trusted_serial_number_or_txid_or_consensus_hash)
 
-    bitcoind_proxy = virtualchain.connect_bitcoind(proxy.conf)
     trusted_serial_number = None
     trusted_txid = None
     trusted_consensus_hash = None
     trusted_block_id = None
+    namespace_id = verify_name.split(".")[-1]
+
+    blockchain_name = namespace_to_blockchain( namespace_id )
+    blockchain_config = virtualchain.get_blockchain_config( blockchain_name, proxy.conf['path'] )
+    blockchain_proxy = virtualchain.connect_blockchain(blockchain_config)
 
     # what did we get?
     if len(trusted_serial_number_or_txid_or_consensus_hash) == 64 and is_hex(trusted_serial_number_or_txid_or_consensus_hash):
         # txid: convert to trusted block ID and consensus hash
         trusted_txid = trusted_serial_number_or_txid_or_consensus_hash
-        trusted_block_hash, trusted_block_data, trusted_tx = txid_to_block_data(trusted_txid, bitcoind_proxy)
+        trusted_block_hash, trusted_block_data, trusted_tx = virtualchain.txid_to_block_data( blockchain_name, trusted_txid, blockchain_proxy, proxy.blockchain_headers_path)
         if trusted_block_hash is None or trusted_block_data is None or trusted_tx is None:
             return {'error': 'Unable to look up given transaction ID'}
 
         # must have a consensus hash
-        op, payload = parse_tx_op_return(trusted_tx)
-        trusted_consensus_hash = get_consensus_hash_from_tx(trusted_tx)
+        op, payload = virtualchain.snv_tx_parse(blockchain_name, trusted_tx)
+        trusted_consensus_hash = get_consensus_hash_from_tx(blockchain_name, trusted_tx, proxy=proxy)
         if trusted_consensus_hash is None:
             return {'error': 'Tx does not refer to a consensus-bearing transaction'}
 
@@ -895,13 +721,13 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
             log.error("Malformed serial number '%s'" % trusted_serial_number_or_txid_or_consensus_hash)
             return {'error': 'Did not receive a valid serial number'}
 
-        trusted_tx = serial_number_to_tx(trusted_serial_number_or_txid_or_consensus_hash, bitcoind_proxy)
+        trusted_tx = virtualchain.serial_number_to_tx_data( blockchain_name, trusted_serial_number_or_txid_or_consensus_hash, blockchain_proxy, proxy.blockchain_headers_path)
         if trusted_tx is None:
             return {'error': 'Unable to convert given serial number into transaction'}
 
         # tx must have a consensus hash
-        op, payload = parse_tx_op_return(trusted_tx)
-        trusted_consensus_hash = get_consensus_hash_from_tx(trusted_tx)
+        op, payload = virtualchain.snv_tx_parse(blockchain_name, trusted_tx)
+        trusted_consensus_hash = get_consensus_hash_from_tx(blockchain_name, trusted_tx, proxy=proxy)
         if trusted_consensus_hash is None:
             return {'error': 'Tx does not refer to a consensus-bearing transaction'}
 
@@ -921,7 +747,7 @@ def snv_lookup(verify_name, verify_block_id, trusted_serial_number_or_txid_or_co
 
     # go verify the name
     verify_consensus_hash = get_consensus_at(verify_block_id, proxy=proxy)
-    historic_namerec = snv_name_verify(verify_name, trusted_block_id, trusted_consensus_hash, verify_block_id, verify_consensus_hash)
+    historic_namerec = snv_name_verify(verify_name, trusted_block_id, trusted_consensus_hash, verify_block_id, verify_consensus_hash, proxy=proxy)
 
     return historic_namerec
 
