@@ -30,7 +30,6 @@ import profile
 import proxy
 import user
 import snv
-import spv 
 import rpc
 import storage
 
