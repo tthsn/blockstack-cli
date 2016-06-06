@@ -39,7 +39,6 @@ import zone_file
 import urllib
 
 from proxy import *
-from spv import SPVClient
 import storage
 
 import pybitcoin
@@ -63,7 +62,7 @@ from wallet import *
 STORAGE_IMPL = None
 
 def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=None,
-            storage_drivers=None, metadata_dir=None, spv_headers_path=None, set_global=False):
+            storage_drivers=None, metadata_dir=None, blockchain_headers_path=None, set_global=False):
 
     """
     Create a blockstack session:
@@ -95,8 +94,8 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
             storage_drivers = conf['storage_drivers']
         if metadata_dir is None:
             metadata_dir = conf['metadata']
-        if spv_headers_path is None:
-            spv_headers_path = conf['blockchain_headers']
+        if blockchain_headers_path is None:
+            blockchain_headers_path = conf['blockchain_headers']
 
     if storage_drivers is None:
         log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of drivers")
@@ -117,9 +116,7 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
             log.error("Failed to initialize storage driver '%s'" % (storage_driver))
             sys.exit(1)
 
-    # initialize SPV
-    SPVClient.init(spv_headers_path)
-    proxy.spv_headers_path = spv_headers_path
+    proxy.blockchain_headers_path = blockchain_headers_path
     proxy.conf = conf
 
     if set_global:
