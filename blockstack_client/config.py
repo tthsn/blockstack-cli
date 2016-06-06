@@ -56,6 +56,7 @@ BLOCKSTACK_METADATA_DIR = os.path.expanduser("~/.blockstack/metadata")
 BLOCKSTACK_DEFAULT_STORAGE_DRIVERS = "disk,dht"
 
 DEFAULT_TIMEOUT = 30  # in secs
+DEFAULT_BLOCKCHAINS = ['bitcoin', 'ethereum']
 
 # borrowed from Blockstack
 FIRST_BLOCK_MAINNET = 373601
@@ -76,6 +77,7 @@ NAMESPACE_READY = '!'
 
 # borrowed from Blockstack
 # these never change, so it's fine to duplicate them here
+# (instead of make a circular dependency on blockstack-server)
 NAME_OPCODES = {
     "NAME_PREORDER": NAME_PREORDER,
     "NAME_REGISTRATION": NAME_REGISTRATION,
@@ -226,14 +228,11 @@ BLOCKCHAIN_ID_MAGIC = 'id'
 USER_ZONEFILE_TTL = 3600    # cache lifetime for a user's zonefile
 
 SLEEP_INTERVAL = 20  # in seconds
-TX_EXPIRED_INTERVAL = 10  # if a tx is not picked up by x blocks
 
 PREORDER_CONFIRMATIONS = 6
 PREORDER_MAX_CONFIRMATIONS = 130  # no. of blocks after which preorder should be removed
-TX_CONFIRMATIONS_NEEDED = 10
 MAX_TX_CONFIRMATIONS = 130
 QUEUE_LENGTH_TO_MONITOR = 50
-MINIMUM_BALANCE = 0.002
 DEFAULT_POLL_INTERVAL = 600
 
 def get_logger( debug=DEBUG ):
@@ -242,6 +241,7 @@ def get_logger( debug=DEBUG ):
     return logger
 
 log = get_logger()
+
 
 def make_default_config(path=CONFIG_PATH):
     """
@@ -275,7 +275,7 @@ def make_default_config(path=CONFIG_PATH):
         parser.set('blockstack-client', 'dht_mirror_port', DEFAULT_DHT_PORT)
         parser.set('blockstack-client', 'api_endpoint_port', str(DEFAULT_API_PORT))
         parser.set('blockstack-client', 'queue_path', str(DEFAULT_QUEUE_PATH))
-        parser.set('blockstack-client', 'poll_interval', str(DEFAULT_POLL_INTERVAL)),
+        parser.set('blockstack-client', 'poll_interval', str(DEFAULT_POLL_INTERVAL))
         parser.set('blockstack-client', 'extra_servers', "")
         parser.set('blockstack-client', 'rpc_detach', "True")
 
@@ -424,10 +424,10 @@ def get_config(path=CONFIG_PATH):
             else:
                 config['rpc_detach'] = False
 
-
-    # import bitcoind options
-    bitcoind_config = virtualchain.get_bitcoind_config(path)
-    config.update(bitcoind_config)
+    # import blockchain-specific options, if there are any
+    for blockchain_name in DEFAULT_BLOCKCHAINS:
+        blockchain_config = virtualchain.get_blockchain_config(blockchain_name, path)
+        config.update(blockchain_config)
 
     if not os.path.isdir(config['metadata']):
         if config['metadata'].startswith(CONFIG_DIR):
