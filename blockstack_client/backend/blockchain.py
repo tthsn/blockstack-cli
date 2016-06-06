@@ -19,11 +19,14 @@ import json
 current_dir = os.path.abspath(os.path.dirname(__file__))
 parent_dir = os.path.abspath(current_dir + "/../")
 
-from ..config import TX_EXPIRED_INTERVAL, TX_CONFIRMATIONS_NEEDED
+TX_EXPIRED_INTERVAL = 10  # if a tx is not picked up by x blocks
+TX_CONFIRMATIONS_NEEDED = 10
+MINIMUM_BALANCE = 0.002
+
 from ..config import MAXIMUM_NAMES_PER_ADDRESS
 from ..config import BLOCKSTACKD_SERVER, BLOCKSTACKD_PORT
 
-from ..config import MINIMUM_BALANCE, CONFIG_PATH
+from ..config import CONFIG_PATH
 from ..config import get_logger
 
 from ..utils import satoshis_to_btc
@@ -39,7 +42,7 @@ def get_bitcoind_client(config_path=CONFIG_PATH):
     """
     Connect to bitcoind
     """
-    bitcoind_opts = virtualchain.get_bitcoind_config(config_file=config_path)
+    bitcoind_opts = virtualchain.get_blockchain_config("bitcoin", config_path)
     if bitcoind_opts['bitcoind_mock']:
         # testing 
         log.debug("Connect to mock bitcoind (%s)" % config_path)
