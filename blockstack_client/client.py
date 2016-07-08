@@ -56,14 +56,16 @@ log = get_logger()
 
 import virtualchain
 
-from wallet import * 
+from wallet import *
 
 # ancillary storage providers
 STORAGE_IMPL = None
 ANALYTICS_KEY = None
 
-def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=None,
-            storage_drivers=None, metadata_dir=None, spv_headers_path=None, set_global=False):
+
+def session(conf=None, config_path=CONFIG_PATH, server_host=None,
+            server_port=None, storage_drivers=None, metadata_dir=None,
+            spv_headers_path=None, set_global=False):
 
     """
     Create a blockstack session:
@@ -93,7 +95,7 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
             spv_headers_path = conf['blockchain_headers']
 
     if storage_drivers is None:
-        log.error("No storage driver(s) defined in the config file.  Please set 'storage=' to a comma-separated list of drivers")
+        log.error("No storage driver(s) defined in the config file. Please set 'storage=' to a comma-separated list of drivers")
         sys.exit(1)
 
     # create proxy
@@ -117,7 +119,7 @@ def session(conf=None, config_path=CONFIG_PATH, server_host=None, server_port=No
     proxy.conf = conf
 
     if set_global:
-        set_default_proxy( proxy )
+        set_default_proxy(proxy)
 
     return proxy
 
@@ -130,7 +132,7 @@ def load_storage(module_name):
     try:
         storage_impl = importlib.import_module("blockstack_storage_drivers.%s" % module_name)
     except ImportError, ie:
-        raise Exception("Failed to import blockstack_storage_drivers.%s.  Please verify that it is installed and is accessible via your PYTHONPATH" % module_name)
+        raise Exception("Failed to import blockstack_storage_drivers.%s. Please verify that it is installed and is accessible via your PYTHONPATH" % module_name)
 
     return storage_impl
 
@@ -146,7 +148,7 @@ def register_storage(storage_impl, conf):
     return rc
 
 
-def get_analytics_key( uuid, proxy=None ):
+def get_analytics_key(uuid, proxy=None):
     """
     Get the analytics key from the blockstack server
     """
@@ -159,23 +161,24 @@ def get_analytics_key( uuid, proxy=None ):
 
     else:
         try:
-            key = proxy.get_analytics_key( uuid )
+            key = proxy.get_analytics_key(uuid)
         except Exception, e:
             log.debug("Failed to get analytics key")
             return None
 
     if 'error' in key:
         log.debug("Failed to fetch analytics key: %s" % key['error'])
-        return None 
+        return None
 
-    if not 'analytics_key' in key.keys():
+    if 'analytics_key' not in key.keys():
         log.debug("No analytics key returned")
         return None
 
     return key['analytics_key']
 
 
-def analytics_event( event_type, event_payload, config_path=CONFIG_PATH, proxy=None ):
+def analytics_event(event_type, event_payload, config_path=CONFIG_PATH,
+                    proxy=None):
     """
     Log an analytics event
     Return True if logged
@@ -184,7 +187,7 @@ def analytics_event( event_type, event_payload, config_path=CONFIG_PATH, proxy=N
     global ANALYTICS_KEY
 
     try:
-        import mixpanel 
+        import mixpanel
     except:
         log.debug("mixpanel is not installed; no analytics will be reported")
         return False
@@ -196,28 +199,34 @@ def analytics_event( event_type, event_payload, config_path=CONFIG_PATH, proxy=N
 
     if not conf['anonymous_statistics']:
         return False
-   
+
     u = conf['uuid']
     if ANALYTICS_KEY is None:
-        ANALYTICS_KEY = get_analytics_key( u )
+        ANALYTICS_KEY = get_analytics_key(u)
         if ANALYTICS_KEY is None:
             return False
 
     # log the event
     log.debug("Track event '%s': %s" % (event_type, event_payload))
+
+    # set the user id - this should be derived from something unique to a
+    # single installation, like the master public key
+    user_id = '0001'
+
     mp = mixpanel.Mixpanel(ANALYTICS_KEY)
-    mp.track( event_type, event_payload )
+    mp.track(user_id, event_type, event_payload)
+
     return True
 
 
-def analytics_user_register( u, config_path=CONFIG_PATH, proxy=None ):
+def analytics_user_register(u, config_path=CONFIG_PATH, proxy=None):
     """
     Register a user with the analytics service
     """
     global ANALYTICS_KEY
 
     try:
-        import mixpanel 
+        import mixpanel
     except:
         log.debug("mixpanel is not installed; no analytics will be reported")
         return False
@@ -229,27 +238,27 @@ def analytics_user_register( u, config_path=CONFIG_PATH, proxy=None ):
 
     if not conf['anonymous_statistics']:
         return False
-    
+
     if ANALYTICS_KEY is None:
-        ANALYTICS_KEY = get_analytics_key( u )
+        ANALYTICS_KEY = get_analytics_key(u)
         if ANALYTICS_KEY is None:
             return False
 
-    # register the user 
+    # register the user
     log.debug("Register user '%s'" % u)
     mp = mixpanel.Mixpanel(ANALYTICS_KEY)
     mp.people_set_once(u, {})
     return True
 
 
-def analytics_user_update( payload, proxy=None ):
+def analytics_user_update(payload, proxy=None):
     """
     Register a user with the analytics service
     """
     global ANALYTICS_KEY
 
     try:
-        import mixpanel 
+        import mixpanel
     except:
         log.debug("mixpanel is not installed; no analytics will be reported")
         return False
@@ -261,15 +270,15 @@ def analytics_user_update( payload, proxy=None ):
 
     if not conf['anonymous_statistics']:
         return False
-    
+
     u = conf['uuid']
     if ANALYTICS_KEY is None:
-        ANALYTICS_KEY = get_analytics_key( u )
+        ANALYTICS_KEY = get_analytics_key(u)
         if ANALYTICS_KEY is None:
             return False
 
-    # register the user 
+    # register the user
     log.debug("Register user '%s'" % u)
     mp = mixpanel.Mixpanel(ANALYTICS_KEY)
-    mp.people_append( u, payload )
+    mp.people_append(u, payload)
     return True
