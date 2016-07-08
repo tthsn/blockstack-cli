@@ -58,8 +58,12 @@ sys.path.insert(0, parent_dir)
 
 from blockstack_client import config
 from blockstack_client.client import session
-from blockstack_client.config import WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH
-from blockstack_client.method_parser import parse_methods, build_method_subparsers
+from blockstack_client.config import (
+    WALLET_PATH, WALLET_PASSWORD_LENGTH, CONFIG_PATH
+)
+from blockstack_client.method_parser import (
+    parse_methods, build_method_subparsers
+)
 
 import blockstack_client.actions as builtin_methods
 
@@ -72,6 +76,7 @@ from utils import exit_with_error, pretty_dump, print_result
 
 log = config.get_logger()
 
+
 def get_methods(prefix, module):
     """
     Get the built-in CLI methods
@@ -81,12 +86,12 @@ def get_methods(prefix, module):
         if attr.startswith(prefix):
             method = getattr(module, attr)
             if callable(method) or hasattr(method, '__call__'):
-                methods.append( method )
+                methods.append(method)
 
     return methods
 
 
-def get_plugin_methods( module_name, prefix ):
+def get_plugin_methods(module_name, prefix):
     """
     Load methods from a given module
     Return the list on success
@@ -96,19 +101,19 @@ def get_plugin_methods( module_name, prefix ):
         mod = __import__(module_name)
     except ImportError:
         log.error("Failed to import '%s'" % module_name)
-        return None 
+        return None
 
-    return get_methods( prefix, mod )
-     
+    return get_methods(prefix, mod)
+
 
 def get_cli_basic_methods():
     """
     Get the basic built-in CLI methods
     """
-    all_methods = get_methods("cli_", builtin_methods )
+    all_methods = get_methods("cli_", builtin_methods)
     ret = []
     for m in all_methods:
-        # filter advanced methods 
+        # filter advanced methods
         if 'cli_advanced_' not in m.__name__:
             ret.append(m)
 
@@ -119,10 +124,10 @@ def get_cli_advanced_methods():
     """
     Get the advanced usage built-in CLI methods
     """
-    return get_methods("cli_advanced_", builtin_methods )
+    return get_methods("cli_advanced_", builtin_methods)
 
 
-def prompt_args( arginfolist, prompt_func ):
+def prompt_args(arginfolist, prompt_func):
     """
     Prompt for args, using parsed method information
     Use prompt_func(arghelp, argname) to do the prompt
@@ -135,7 +140,6 @@ def prompt_args( arginfolist, prompt_func ):
         arghelp = argdata['help']
 
         try:
-            
             arg = None
             while True:
                 try:
@@ -161,7 +165,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     """
     Run a CLI command from arguments (defaults to sys.argv)
     Return the result of the command on success.
-    The result will be a dict, and will have 'error' defined on error condition.
+    The result will be a dict, and will have 'error' defined on error condition
     """
 
     if argv is None:
@@ -181,7 +185,7 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
                 argv.pop(i)
 
             else:
-                i+=1
+                i += 1
 
     conf = config.get_config(path=config_path)
 
@@ -191,24 +195,24 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     advanced_mode = conf['advanced_mode']
 
     parser = argparse.ArgumentParser(
-            description='Blockstack cli version {}'.format(config.VERSION))
+        description='Blockstack cli version {}'.format(config.VERSION))
 
     all_methods = []
     subparsers = parser.add_subparsers(dest='action')
-    
-    # add basic methods 
-    basic_methods = get_cli_basic_methods()
-    basic_method_info = parse_methods( basic_methods )
-    build_method_subparsers( subparsers, basic_method_info )
 
-    all_methods = basic_method_info 
+    # add basic methods
+    basic_methods = get_cli_basic_methods()
+    basic_method_info = parse_methods(basic_methods)
+    build_method_subparsers(subparsers, basic_method_info)
+
+    all_methods = basic_method_info
 
     if advanced_mode:
-        # add advanced methods 
+        # add advanced methods
         log.debug("Enabling advanced methods")
         advanced_methods = get_cli_advanced_methods()
-        advanced_method_info = parse_methods( advanced_methods )
-        build_method_subparsers( subparsers, advanced_method_info )
+        advanced_method_info = parse_methods(advanced_methods)
+        build_method_subparsers(subparsers, advanced_method_info)
         all_methods += advanced_method_info
 
     # Print default help message, if no argument is given
@@ -225,22 +229,25 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
         directive = args.action
     except SystemExit:
         # bad arguments
-        # special case: if the method is specified, but no method arguments are given,
-        # then switch to prompting the user for individual arguments.
+        # special case: if the method is specified, but no method arguments are
+        # given, then switch to prompting the user for individual arguments.
         try:
-            directive_parser = argparse.ArgumentParser(description='Blockstack cli version {}'.format(config.VERSION))
+            directive_parser = argparse.ArgumentParser(
+                description='Blockstack cli version {}'.format(config.VERSION))
             directive_subparsers = directive_parser.add_subparsers(dest='action')
 
             # only parse the directive
-            build_method_subparsers( directive_subparsers, all_methods, include_args=False, include_opts=False ) 
-            directive_args, directive_unknown_args = directive_parser.parse_known_args( args=argv[1:] )
+            build_method_subparsers(
+                directive_subparsers, all_methods, include_args=False,
+                include_opts=False)
+            directive_args, directive_unknown_args = directive_parser.parse_known_args(args=argv[1:])
 
             # want interactive prompting
             interactive = True
             directive = directive_args.action
 
         except SystemExit:
-            # still invalid 
+            # still invalid
             parser.print_help()
             return {'error': 'Invalid arguments.  Try passing "-h".'}
 
@@ -253,39 +260,39 @@ def run_cli(argv=None, config_path=CONFIG_PATH):
     session(conf=conf, server_host=blockstack_server,
             server_port=blockstack_port, set_global=True)
 
-    # dispatch to the apporpriate method  
+    # dispatch to the apporpriate method
     for method_info in all_methods:
         if directive != method_info['command']:
             continue
 
         method = method_info['method']
-        
+
         # interactive?
         if interactive:
             print ""
             print "Interactive prompt engaged.  Press Ctrl+C to quit"
             print "Help for '%s': %s" % (method_info['command'], method_info['help'])
             print ""
-            
-            required_args = prompt_args( method_info['args'], lambda arghelp, argname: raw_input("%s ('%s'): " % (arghelp, argname)) )
+
+            required_args = prompt_args(method_info['args'], lambda arghelp, argname: raw_input("%s ('%s'): " % (arghelp, argname)))
             if required_args is None:
                 return {'error': 'Failed to prompt for arguments'}
 
-            optional_args = prompt_args( method_info['opts'], lambda arghelp, argname: raw_input("optional: %s ('%s'): " % (arghelp, argname) ))
+            optional_args = prompt_args(method_info['opts'], lambda arghelp, argname: raw_input("optional: %s ('%s'): " % (arghelp, argname)))
             if optional_args is None:
                 return {'error': 'Failed to prompt for arguments'}
 
             full_args = [method_info['command']] + required_args + optional_args
             try:
-                args, unknown_args = parser.parse_known_args( args=full_args )
+                args, unknown_args = parser.parse_known_args(args=full_args)
             except SystemExit:
                 # invalid arguments
                 return {'error': 'Invalid arguments.  Please try again.'}
 
-        result = method( args, config_path=config_path )
+        result = method(args, config_path=config_path)
         return result
 
-    # not found 
+    # not found
     return {'error': "No such command '%s'" % args.action}
 
 
@@ -296,5 +303,3 @@ if __name__ == '__main__':
     else:
         print_result(result)
         sys.exit(0)
-
-
