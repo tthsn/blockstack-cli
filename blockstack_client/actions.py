@@ -148,7 +148,8 @@ def check_valid_name(fqu):
     return "The name is invalid"
 
 
-def operation_sanity_check(fqu, payment_privkey, config_path=CONFIG_PATH, transfer_address=None, proxy=None):
+def operation_sanity_check(fqu, payment_privkey, config_path=CONFIG_PATH,
+                           transfer_address=None, proxy=None):
     """
     Any update, transfer, renew, or revoke operation
     should pass these tests:
@@ -261,29 +262,29 @@ def start_rpc_endpoint(config_dir=CONFIG_DIR, password=None, wallet_path=None):
         if 'error' in res:
             return res
 
-    rc = local_rpc_ensure_running( config_dir, password=password )
+    rc = local_rpc_ensure_running(config_dir, password=password)
     if not rc:
         raise Exception("Failed to start RPC endpoint (from %s)" % config_dir)
 
     return True
 
 
-def cli_configure( args, config_path=CONFIG_PATH ):
+def cli_configure(args, config_path=CONFIG_PATH):
     """
     command: configure
-    help: Interactively configure the client.
+    help: Interactively configure the client
     """
 
-    opts = configure( interactive=True, force=True, config_file=config_path )
+    opts = configure(interactive=True, force=True, config_file=config_path)
     result = {}
     result['path'] = opts['blockstack-client']['path']
     return result
 
 
-def cli_balance( args, config_path=CONFIG_PATH ):
+def cli_balance(args, config_path=CONFIG_PATH):
     """
     command: balance
-    help: Get and return the account balance.
+    help: Get the account balance
     """
 
     config_dir = os.path.dirname(config_path)
@@ -294,14 +295,15 @@ def cli_balance( args, config_path=CONFIG_PATH ):
             return res
 
     result = {}
-    result['total_balance'], result['addresses'] = get_total_balance(wallet_path=wallet_path, config_path=config_path)
+    result['total_balance'], result['addresses'] = get_total_balance(
+        wallet_path=wallet_path, config_path=config_path)
     return result
 
 
-def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
+def cli_price(args, config_path=CONFIG_PATH, proxy=None, password=None):
     """
     command: price
-    help: Get and return the price of a name
+    help: Get the price of a name
     arg: name (str) "Name to query"
     """
 
@@ -318,7 +320,7 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
 
     start_rpc_endpoint(config_dir, password=password)
 
-    wallet_keys = get_wallet_keys( config_path, password )
+    wallet_keys = get_wallet_keys(config_path, password)
     if 'error' in wallet_keys:
         return wallet_keys
 
@@ -327,7 +329,7 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
 
     owner_address = pybitcoin.BitcoinPrivateKey(owner_privkey).public_key().address()
 
-    # must be available 
+    # must be available
     try:
         blockchain_record = get_name_blockchain_record(fqu)
     except socket_error:
@@ -336,14 +338,15 @@ def cli_price( args, config_path=CONFIG_PATH, proxy=None, password=None):
     if 'owner_address' in blockchain_record:
         return {'error': 'Name already registered.'}
 
-    
-    payment_address, owner_address, data_pubkey = get_addresses_from_file(config_dir=config_dir, wallet_path=wallet_path)
-    fees = get_total_registration_fees( fqu, payment_privkey, owner_address, proxy=proxy, config_path=config_path )
-    analytics_event( "Name price", {} )
+    payment_address, owner_address, data_pubkey = get_addresses_from_file(
+        config_dir=config_dir, wallet_path=wallet_path)
+    fees = get_total_registration_fees(fqu, payment_privkey, owner_address,
+                                       proxy=proxy, config_path=config_path)
+    analytics_event("Name price", {})
     return fees
 
 
-def cli_deposit( args, config_path=CONFIG_PATH ):
+def cli_deposit(args, config_path=CONFIG_PATH):
     """
     command: deposit
     help: Display the address with which to receive bitcoins
@@ -581,7 +584,7 @@ def cli_details( args, config_path=CONFIG_PATH ):
 def cli_lookup( args, config_path=CONFIG_PATH ):
     """
     command: lookup
-    help: Get the data record for a particular name.
+    help: Get the zone file and profile for a particular name
     arg: name (str) "The name to look up"
     """
     data = {}
@@ -626,7 +629,7 @@ def cli_lookup( args, config_path=CONFIG_PATH ):
 def cli_whois( args, config_path=CONFIG_PATH ):
     """
     command: whois
-    help: Look up a name's blockchain info
+    help: Look up the blockchain info for a name
     arg: name (str) "The name to look up"
     """
     result = {}
@@ -789,7 +792,7 @@ def cli_register( args, config_path=CONFIG_PATH, interactive=True, password=None
 def cli_update( args, config_path=CONFIG_PATH, password=None ):
     """
     command: update
-    help: Set a name's zonefile.  Does not affect the profile data.
+    help: Set the zone file for a name
     arg: name (str) "The name to update"
     arg: data (str) "A bare zonefile, or a JSON-serialized zonefile."
     """
@@ -1033,7 +1036,7 @@ def cli_renew( args, config_path=CONFIG_PATH, interactive=True, password=None, p
 def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, proxy=None ):
     """
     command: revoke
-    help: Revoke a name.  THIS CANNOT BE UNDONE. 
+    help: Revoke a name
     arg: name (str) "The name to revoke"
     """
 
@@ -1108,7 +1111,7 @@ def cli_revoke( args, config_path=CONFIG_PATH, interactive=True, password=None, 
 def cli_migrate( args, config_path=CONFIG_PATH, password=None, proxy=None ):
     """
     command: migrate
-    help: Migrate your profile from the legacy format to the new format.  This will enable all new features.
+    help: Migrate a profile from legacy format to the new format
     arg: name (str) "The name to migrate"
     opt: txid (str) "The transaction ID of a previously-sent but failed migration"
     """

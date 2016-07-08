@@ -82,8 +82,15 @@ def get_methods(prefix, module):
     Get the built-in CLI methods
     """
     methods = []
+    methods_to_skip = [
+        'cli_put_account', 'cli_list_accounts', 'cli_get_account',
+        'cli_delete_account', 'cli_set_advanced_mode', 'cli_import_wallet',
+        'cli_details', 'cli_status', 'cli_ping'
+    ]
     for attr in dir(module):
         if attr.startswith(prefix):
+            if attr in methods_to_skip:
+                continue
             method = getattr(module, attr)
             if callable(method) or hasattr(method, '__call__'):
                 methods.append(method)
