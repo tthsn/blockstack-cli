@@ -66,7 +66,7 @@ def is_name_valid( fqn ):
     if not is_b40( namespace_id ) or "+" in namespace_id or "." in namespace_id:
         return False
     
-    name_hex = hexlify(name)
+    name_hex = hexlify(fqn)
     if len(name_hex) > LENGTHS['blockchain_id_name'] * 2:
        # too long
        return False 
