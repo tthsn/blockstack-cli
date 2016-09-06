@@ -475,6 +475,9 @@ def get_mutable_data( fq_data_id, data_pubkey, urls=None, data_address=None, own
                     log.error("Unparseable data from '%s'" % url)
                     continue
 
+                else:
+                    log.debug("verified data with owner address %s" % owner_address)
+
              log.debug("loaded '%s' with %s" % (url, storage_handler.__name__))
          else:
              data = data_json
